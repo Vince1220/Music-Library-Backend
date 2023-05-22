@@ -4,6 +4,7 @@ from flask_sqlalchemy import SQLAlchemy
 from flask_marshmallow import Marshmallow
 from flask_migrate import Migrate
 from flask_restful import Api, Resource
+from marshmallow import post_load, fields, ValidationError
 from dotenv import load_dotenv
 from os import environ
 
@@ -28,13 +29,14 @@ class Song(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     title = db.Column(db.String(255), nullable=False)
     artist = db.Column(db.String(255), nullable=False)
-    album = db.Column(db.String(255))
+    album = db.Column(db.String(255), nullable=False)
+    genre = db.Column(db.String(255), nullable=False)
     release_date = db.Column(db.Date)
-    genre = db.Column(db.String(255))
-    likes = db.Column(db.Integer, default = 0)
+    running_time = db.Column(db.Float)
 
-     def __repr__(self):
-        return f'{self.id} {self.title} {self.artist} {self.album} {self.release_date} {self.genre} {self.likes}'
+
+     def __repr__(self):        
+        return f"{self.id} {self.title} {self.artist} {self.album} {self.release_date} {self.genre} {self.running_time}"
 
 
 # Schemas
@@ -43,13 +45,13 @@ class SongSchema(ma.Schema):
     id = fields.Integer(primary_key=True)
     title = fields.String(required=True)
     artist = fields.String(required=True)
-    album = fields.String()
+    album = fields.String(required=True)
+    genre = fields.String(required=True)
     release_date = fields.Date()
-    genre = fields.String()
-    likes = fields.Integer()
+    running_time = fields.Float()
 
     class Meta:
-        fields = ("id", "title", "artist", "album", "release_date", "genre", "likes")
+        fields = ("id", "title", "artist", "album", "release_date", "genre", "running_time")
 
     @post_load
     def create_song(self, data, **kwargs):
@@ -63,12 +65,21 @@ songs_schema = SongSchema(many=True)
 
 class SongListResource(Resource):
     def get(self):
-        all_songs =  Song.query.all()
-        return songs_schema.dump(all_songs)
+        all_songs = Song.query.all()
+        songs_data = songs_schema.dump(all_songs)
+
+        total_running_time = sum(song.running_time if song.running_time is not None else 0 for song in all_songs)
+        total_running_time_minutes = round(total_running_time / 60, 2)
+
+        response = {
+            "songs" : songs_data,
+            "total_running_time" :  total_running_time_minutes
+        }
+        return response, 201
     
     def post(self):
         form_data = request.get_json()
-        try:        
+        try:
             new_song = song_schema.load(form_data)
             db.session.add(new_song)
             db.session.commit()
@@ -76,41 +87,39 @@ class SongListResource(Resource):
         except ValidationError as err:
             return err.messages, 400
 
+            
+        
+        
 class SongResource(Resource):
     def get(self, song_id):
         song_from_db = Song.query.get_or_404(song_id)
         return song_schema.dump(song_from_db)
     
-    def put(self, song_id):
-        song_from_db = Song.query.get_or_404(song_id)
-
-        if 'title' in request.json:
-            song_from_db.title = request.json['title']
-        if 'artist' in request.json:
-            song_from_db.artist = request.json['artist']       
-        if 'album' in request.json:
-            song_from_db.album = request.json['album']  
-        if 'release_date' in request.json:
-            song_from_db.release_date = request.json['release_date']   
-        if 'genre' in request.json:
-            song_from_db.genre = request.json['genre']   
-        if 'likes' in request.json:
-            return 'not_permitted_to_reset', 400
-
-        db.session.commit()
-        return song_schema.dump(song_from_db)
-
-          def patch(self, song_id):
-        song_from_db = Song.query.get_or_404(song_id)
-        song_from_db.likes += 1
-        db.session.commit()
-        return song_schema.dump(song_from_db)
-
     def delete(self, song_id):
         song_from_db = Song.query.get_or_404(song_id)
         db.session.delete(song_from_db)
         db.session.commit()
-        return '', 204
+        return "", 204
+    
+
+    def put(self, song_id):
+        song_from_db = Song.query.get_or_404(song_id)
+
+        if "title" in request.json:
+            song_from_db.title = request.json["title"]
+        if "artist" in request.json:
+            song_from_db.artist = request.json["artist"]
+        if "album" in request.json:
+            song_from_db.album = request.json["album"]
+        if "release_date" in request.json:
+            song_from_db.release_date = request.json["release_date"]
+        if "genre" in request.json:
+            song_from_db.genre = request.json["genre"]
+        if "running_time" in request.json:
+            song_from_db.running_time = request.json["running_time"]
+        
+        db.session.commit()
+        return song_schema.dump(song_from_db)
 
 
 # Routes
